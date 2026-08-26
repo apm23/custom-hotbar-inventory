@@ -19,194 +19,59 @@ import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
-
 import java.util.ArrayList;
 import java.util.List;
 
 public final class CustomHotbarInventoryClient implements ClientModInitializer {
-    private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(CustomHotbarInventory.id("controls"));
-    private static final long HOTBAR_DEBOUNCE_NANOS = 180_000_000L;
+    private static final KeyMapping.Category CATEGORY=KeyMapping.Category.register(CustomHotbarInventory.id("controls"));
+    private static final long CYCLE_DEBOUNCE_NANOS=180_000_000L;
+    private final KeyMapping cycleInventory=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.custom_hotbar_inventory.cycle_inventory",InputConstants.Type.KEYSYM,GLFW.GLFW_KEY_V,CATEGORY));
+    private final KeyMapping swapHotbar=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.custom_hotbar_inventory.swap_hotbar",InputConstants.Type.KEYSYM,GLFW.GLFW_KEY_B,CATEGORY));
+    private final KeyMapping sortAll=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.custom_hotbar_inventory.sort_all",InputConstants.Type.KEYSYM,GLFW.GLFW_KEY_N,CATEGORY));
+    private final KeyMapping mergeAll=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.custom_hotbar_inventory.merge_all",InputConstants.Type.KEYSYM,GLFW.GLFW_KEY_M,CATEGORY));
+    private final InputDebounce hotbarDebounce=new InputDebounce(CYCLE_DEBOUNCE_NANOS);
+    private final InputDebounce inventoryDebounce=new InputDebounce(CYCLE_DEBOUNCE_NANOS);
+    private final List<Button> pageButtons=new ArrayList<>(8);
+    private int visiblePage=0;
 
-    private final KeyMapping cycleInventory = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.cycle_inventory", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY));
-    private final KeyMapping swapHotbar = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.swap_hotbar", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, CATEGORY));
-    private final KeyMapping sortAll = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.sort_all", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, CATEGORY));
-    private final KeyMapping mergeAll = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.merge_all", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, CATEGORY));
-
-    private final InputDebounce hotbarDebounce = new InputDebounce(HOTBAR_DEBOUNCE_NANOS);
-    private final List<Button> pageButtons = new ArrayList<>(8);
-    private int visiblePage = 0;
-
-    @Override
-    public void onInitializeClient() {
+    @Override public void onInitializeClient(){
         CustomHotbarInventory.LOGGER.info("Custom Hotbar Inventory client initialized");
-
-        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+        ClientPlayNetworking.registerGlobalReceiver(ModPayloads.PageState.TYPE,(payload,context)->context.client().execute(()->{visiblePage=Math.max(0,Math.min(7,payload.page()));refreshPageButtons();}));
+        ScreenEvents.AFTER_INIT.register((client,screen,width,height)->{
             installGuiInput(screen);
-            if (!isPlayerInventoryScreen(screen)) return;
-
-            visiblePage = 0;
+            if(!isSurvivalInventory(screen))return; // Never pollute creative tabs or unrelated menus.
             pageButtons.clear();
-            if (ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE)) {
-                ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
-            }
-            sendPage(0);
-            addPageButtons(screen, width, height);
-            refreshPageButtons();
-
-            ScreenEvents.remove(screen).register(removed -> {
-                pageButtons.clear();
-                if (ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE)) {
-                    ClientPlayNetworking.send(new ModPayloads.BrowseClose());
-                }
-            });
+            if(ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
+            addPageButtons(screen,width,height);refreshPageButtons();
+            ScreenEvents.remove(screen).register(removed->{pageButtons.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
         });
-
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.gui.screen() == null) {
-                consumeHotbarOutsideGui();
-                drain(cycleInventory);
-                drain(sortAll);
-                drain(mergeAll);
-            } else {
-                drain(swapHotbar);
-                drain(cycleInventory);
-                drain(sortAll);
-                drain(mergeAll);
-            }
+        ClientTickEvents.END_CLIENT_TICK.register(client->{
+            if(client.gui.screen()==null){consumeHotbarOutsideGui();drain(cycleInventory);drain(sortAll);drain(mergeAll);}else{drain(swapHotbar);drain(cycleInventory);drain(sortAll);drain(mergeAll);}
         });
     }
-
-    private void installGuiInput(Screen screen) {
-        ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> {
-            InputConstants.Key input = InputConstants.getKey(event);
-            return !handleGuiInput(s, input);
-        });
-        ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> {
-            InputConstants.Key input = InputConstants.Type.MOUSE.getOrCreate(event.button());
-            return !handleGuiInput(s, input);
-        });
-    }
-
-    private boolean handleGuiInput(Screen screen, InputConstants.Key input) {
-        if (matches(swapHotbar, input)) {
-            if (hotbarDebounce.tryAcquire(System.nanoTime())) {
-                sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
-            }
-            return true;
-        }
-        if (!isPlayerInventoryScreen(screen)) return false;
-
-        if (matches(cycleInventory, input)) {
-            visiblePage = (visiblePage + 1) & 7;
-            refreshPageButtons();
-            sendIfPossible(new ModPayloads.CyclePage(), ModPayloads.CyclePage.TYPE);
-            return true;
-        }
-        if (matches(sortAll, input)) {
-            sendIfPossible(new ModPayloads.SortAll(), ModPayloads.SortAll.TYPE);
-            return true;
-        }
-        if (matches(mergeAll, input)) {
-            sendIfPossible(new ModPayloads.MergeAll(), ModPayloads.MergeAll.TYPE);
-            return true;
-        }
+    private void installGuiInput(Screen screen){ScreenKeyboardEvents.allowKeyPress(screen).register((s,event)->!handleGuiInput(s,InputConstants.getKey(event)));ScreenMouseEvents.allowMouseClick(screen).register((s,event)->!handleGuiInput(s,InputConstants.Type.MOUSE.getOrCreate(event.button())));}
+    private boolean handleGuiInput(Screen screen,InputConstants.Key input){
+        if(matches(swapHotbar,input)){if(hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);return true;}
+        if(!isSurvivalInventory(screen))return false;
+        if(matches(cycleInventory,input)){if(inventoryDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.CyclePage(),ModPayloads.CyclePage.TYPE);return true;}
+        if(matches(sortAll,input)){sendIfPossible(new ModPayloads.SortAll(),ModPayloads.SortAll.TYPE);return true;}
+        if(matches(mergeAll,input)){sendIfPossible(new ModPayloads.MergeAll(),ModPayloads.MergeAll.TYPE);return true;}
         return false;
     }
-
-    private void consumeHotbarOutsideGui() {
-        boolean clicked = false;
-        while (swapHotbar.consumeClick()) clicked = true;
-        if (clicked && hotbarDebounce.tryAcquire(System.nanoTime())) {
-            sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
-        }
+    private void consumeHotbarOutsideGui(){boolean clicked=false;while(swapHotbar.consumeClick())clicked=true;if(clicked&&hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);}
+    private static boolean matches(KeyMapping m,InputConstants.Key input){return KeyMappingHelper.getBoundKeyOf(m).equals(input);}
+    private static void drain(KeyMapping m){while(m.consumeClick()){} }
+    private static boolean isSurvivalInventory(Screen s){return s instanceof InventoryScreen;}
+    private void addPageButtons(Screen screen,int width,int height){
+        final int guiLeft=(width-176)/2, guiTop=(height-166)/2;
+        final int bw=11,bh=11,gap=1;
+        // Right of the 2x2 crafting grid, tucked against the panel's right edge.
+        final int x0=guiLeft+125, y0=guiTop+27;
+        for(int page=0;page<8;page++){final int target=page;int col=page%4,row=page/4;Button b=Button.builder(Component.literal(Integer.toString(page+1)),ignored->{sendPage(target);}).bounds(x0+col*(bw+gap),y0+row*(bh+gap),bw,bh).build();pageButtons.add(b);Screens.getWidgets(screen).add(b);}
     }
-
-    private static boolean matches(KeyMapping mapping, InputConstants.Key input) {
-        return KeyMappingHelper.getBoundKeyOf(mapping).equals(input);
-    }
-
-    private static void drain(KeyMapping mapping) {
-        while (mapping.consumeClick()) {
-            // intentionally drained
-        }
-    }
-
-    private static boolean isPlayerInventoryScreen(Screen screen) {
-        return screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen;
-    }
-
-    private void addPageButtons(Screen screen, int width, int height) {
-        // Compact 4x2 selector in the unused upper-right inventory space.
-        // Coordinates are relative to vanilla's 176x166 inventory panel.
-        final int guiLeft = (width - 176) / 2;
-        final int guiTop = (height - 166) / 2;
-        final int buttonWidth = 11;
-        final int buttonHeight = 11;
-        final int gap = 1;
-        final int x0 = guiLeft + 121;
-        final int y0 = guiTop + 27;
-
-        for (int page = 0; page < 8; page++) {
-            final int target = page;
-            int col = page % 4;
-            int row = page / 4;
-            Button button = Button.builder(Component.literal(Integer.toString(page + 1)), b -> {
-                visiblePage = target;
-                refreshPageButtons();
-                sendPage(target);
-            }).bounds(x0 + col * (buttonWidth + gap), y0 + row * (buttonHeight + gap), buttonWidth, buttonHeight).build();
-            pageButtons.add(button);
-            Screens.getWidgets(screen).add(button);
-        }
-    }
-
-    private void refreshPageButtons() {
-        for (int i = 0; i < pageButtons.size(); i++) {
-            Button button = pageButtons.get(i);
-            button.active = i != visiblePage;
-            button.setMessage(Component.literal(Integer.toString(i + 1)));
-        }
-    }
-
-    private static void sendPage(int page) {
-        var payload = payloadForPage(page);
-        sendIfPossible(payload, typeForPage(page));
-    }
-
-    private static void sendIfPossible(net.minecraft.network.protocol.common.custom.CustomPacketPayload payload,
-                                       net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> type) {
-        if (ClientPlayNetworking.canSend(type)) ClientPlayNetworking.send(payload);
-    }
-
-    private static net.minecraft.network.protocol.common.custom.CustomPacketPayload payloadForPage(int page) {
-        return switch (page) {
-            case 0 -> new ModPayloads.DirectPage.P1();
-            case 1 -> new ModPayloads.DirectPage.P2();
-            case 2 -> new ModPayloads.DirectPage.P3();
-            case 3 -> new ModPayloads.DirectPage.P4();
-            case 4 -> new ModPayloads.DirectPage.P5();
-            case 5 -> new ModPayloads.DirectPage.P6();
-            case 6 -> new ModPayloads.DirectPage.P7();
-            case 7 -> new ModPayloads.DirectPage.P8();
-            default -> throw new IllegalArgumentException("page=" + page);
-        };
-    }
-
-    private static net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> typeForPage(int page) {
-        return switch (page) {
-            case 0 -> ModPayloads.DirectPage.P1.TYPE;
-            case 1 -> ModPayloads.DirectPage.P2.TYPE;
-            case 2 -> ModPayloads.DirectPage.P3.TYPE;
-            case 3 -> ModPayloads.DirectPage.P4.TYPE;
-            case 4 -> ModPayloads.DirectPage.P5.TYPE;
-            case 5 -> ModPayloads.DirectPage.P6.TYPE;
-            case 6 -> ModPayloads.DirectPage.P7.TYPE;
-            case 7 -> ModPayloads.DirectPage.P8.TYPE;
-            default -> throw new IllegalArgumentException("page=" + page);
-        };
-    }
+    private void refreshPageButtons(){for(int i=0;i<pageButtons.size();i++){Button b=pageButtons.get(i);b.active=i!=visiblePage;b.setMessage(Component.literal(Integer.toString(i+1)));}}
+    private static void sendPage(int page){sendIfPossible(payloadForPage(page),typeForPage(page));}
+    private static void sendIfPossible(net.minecraft.network.protocol.common.custom.CustomPacketPayload p,net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> t){if(ClientPlayNetworking.canSend(t))ClientPlayNetworking.send(p);}
+    private static net.minecraft.network.protocol.common.custom.CustomPacketPayload payloadForPage(int p){return switch(p){case 0->new ModPayloads.DirectPage.P1();case 1->new ModPayloads.DirectPage.P2();case 2->new ModPayloads.DirectPage.P3();case 3->new ModPayloads.DirectPage.P4();case 4->new ModPayloads.DirectPage.P5();case 5->new ModPayloads.DirectPage.P6();case 6->new ModPayloads.DirectPage.P7();case 7->new ModPayloads.DirectPage.P8();default->throw new IllegalArgumentException("page="+p);};}
+    private static net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> typeForPage(int p){return switch(p){case 0->ModPayloads.DirectPage.P1.TYPE;case 1->ModPayloads.DirectPage.P2.TYPE;case 2->ModPayloads.DirectPage.P3.TYPE;case 3->ModPayloads.DirectPage.P4.TYPE;case 4->ModPayloads.DirectPage.P5.TYPE;case 5->ModPayloads.DirectPage.P6.TYPE;case 6->ModPayloads.DirectPage.P7.TYPE;case 7->ModPayloads.DirectPage.P8.TYPE;default->throw new IllegalArgumentException("page="+p);};}
 }
