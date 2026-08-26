@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "custom_hotbar_inventory",
+  "version": "${version}",
+  "name": "Custom Hotbar Inventory",
+  "description": "Eight-page server-authoritative inventory, alternate hotbar, global sort/merge and direct page selector.",
+  "authors": ["apm23"],
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.anjas.custominventory.CustomHotbarInventory"],
+    "client": ["com.anjas.custominventory.client.CustomHotbarInventoryClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": ">=0.158.0+26.2"
+  }
+}
