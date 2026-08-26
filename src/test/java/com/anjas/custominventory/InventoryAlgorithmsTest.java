@@ -1,5 +1,6 @@
 package com.anjas.custominventory;
 
+import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 final class InventoryAlgorithmsTest {
     @BeforeAll
     static void bootstrapMinecraft() {
+        SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
     }
 
