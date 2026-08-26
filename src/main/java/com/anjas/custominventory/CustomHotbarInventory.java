@@ -3,6 +3,7 @@ package com.anjas.custominventory;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentTarget;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -27,7 +28,6 @@ public final class CustomHotbarInventory implements ModInitializer {
     @Override
     public void onInitialize() {
         InventoryStorage.register();
-        InventoryAlgorithms.runStartupSelfTests();
         registerPayloads();
         registerReceivers();
         registerLifecycle();
@@ -83,6 +83,8 @@ public final class CustomHotbarInventory implements ModInitializer {
     }
 
     private static void registerLifecycle() {
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> InventoryAlgorithms.runStartupSelfTests());
+
         ServerPlayerEvents.JOIN.register(player -> InventoryStorage.setBrowsing(player, false));
         ServerPlayerEvents.LEAVE.register(player -> {
             InventoryStorage.setBrowsing(player, false);
