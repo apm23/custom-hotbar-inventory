@@ -21,12 +21,10 @@ public final class InventoryAlgorithms {
         verifyConservation(mergeBefore, mergeAfter, "startup-merge");
         int stoneCount = mergeAfter.stream().filter(s -> s.is(Items.STONE)).mapToInt(ItemStack::getCount).sum();
         if (stoneCount != 70 || mergeAfter.stream().anyMatch(s -> s.getCount() > s.getMaxStackSize())) throw new IllegalStateException("startup merge self-test failed");
-
         ItemStack pristine = new ItemStack(Items.DIAMOND_PICKAXE);
         ItemStack damaged = new ItemStack(Items.DIAMOND_PICKAXE); damaged.setDamageValue(1);
         List<ItemStack> componentMerge = merge(List.of(pristine, damaged));
         if (componentMerge.size() != 2 || ItemStack.isSameItemSameComponents(componentMerge.get(0), componentMerge.get(1))) throw new IllegalStateException("component-safe merge self-test failed");
-
         assertCategory(Items.BREAD, 0); assertCategory(Items.DIAMOND_PICKAXE, 1); assertCategory(Items.DIAMOND, 2); assertCategory(Items.REDSTONE, 3); assertCategory(Items.ROTTEN_FLESH, 4);
         List<ItemStack> lossBefore = List.of(new ItemStack(Items.IRON_INGOT, 10));
         boolean rejectedLoss = false;
@@ -34,19 +32,22 @@ public final class InventoryAlgorithms {
         if (!rejectedLoss) throw new IllegalStateException("conservation guard failed to reject item loss");
         CustomHotbarInventory.LOGGER.info("Inventory sort/merge startup self-tests passed");
     }
-
-    private static void assertCategory(net.minecraft.world.item.Item item, int expected) {
-        ItemStack stack = new ItemStack(item); int actual = category(stack);
-        if (actual != expected) throw new IllegalStateException("sort category self-test failed for " + registryId(stack) + ": expected=" + expected + ", actual=" + actual);
-    }
-
+    private static void assertCategory(net.minecraft.world.item.Item item, int expected) { ItemStack stack = new ItemStack(item); int actual = category(stack); if (actual != expected) throw new IllegalStateException("sort category self-test failed for " + registryId(stack) + ": expected=" + expected + ", actual=" + actual); }
     public static void mergeAll(ServerPlayer player) { List<ItemStack> before=collect(player); List<ItemStack> merged=merge(before); verifyConservation(before,merged,"merge"); rewrite(player,merged,false); }
     public static void sortAll(ServerPlayer player) { List<ItemStack> before=collect(player); List<ItemStack> sorted=merge(before); verifyConservation(before,sorted,"sort-merge"); sorted.sort(Comparator.comparingInt(InventoryAlgorithms::category).thenComparing(InventoryAlgorithms::registryId).thenComparingInt(ItemStack::getCount)); verifyConservation(before,sorted,"sort"); rewrite(player,sorted,true); }
     private static List<ItemStack> collect(ServerPlayer player) { InventoryStorage.snapshotLive(player); ArrayList<ItemStack> all=new ArrayList<>(InventoryStorage.PAGE_COUNT*InventoryStorage.PAGE_SIZE); for(int page=0;page<InventoryStorage.PAGE_COUNT;page++) for(ItemStack stack:InventoryStorage.read(player,page)) if(!stack.isEmpty()) all.add(stack.copy()); return all; }
     static List<ItemStack> merge(List<ItemStack> input) { ArrayList<ItemStack> out=new ArrayList<>(); for(ItemStack original:input){ if(original==null||original.isEmpty())continue; ItemStack remaining=original.copy(); for(ItemStack existing:out){ if(remaining.isEmpty())break; if(!ItemStack.isSameItemSameComponents(existing,remaining))continue; int room=existing.getMaxStackSize()-existing.getCount(); if(room<=0)continue; int moved=Math.min(room,remaining.getCount()); existing.grow(moved); remaining.shrink(moved);} if(!remaining.isEmpty())out.add(remaining);} return out; }
     private static void rewrite(ServerPlayer player,List<ItemStack> stacks,boolean vertical){ int capacity=InventoryStorage.PAGE_COUNT*InventoryStorage.PAGE_SIZE; if(stacks.size()>capacity)throw new IllegalStateException("Refusing to rewrite "+stacks.size()+" stacks into "+capacity+" slots"); int cursor=0; for(int page=0;page<InventoryStorage.PAGE_COUNT;page++){ ArrayList<ItemStack> target=new ArrayList<>(InventoryStorage.PAGE_SIZE); for(int i=0;i<InventoryStorage.PAGE_SIZE;i++)target.add(ItemStack.EMPTY); for(int logical=0;logical<InventoryStorage.PAGE_SIZE&&cursor<stacks.size();logical++){int slot=vertical?verticalSlot(logical):logical;target.set(slot,stacks.get(cursor++).copy());} InventoryStorage.write(player,page,target);} InventoryStorage.loadLive(player,InventoryStorage.read(player,InventoryStorage.active(player))); InventoryStorage.sync(player); }
     static int verticalSlot(int logical){ if(logical<0||logical>=InventoryStorage.PAGE_SIZE)throw new IllegalArgumentException("logical="+logical); return(logical%3)*9+(logical/3); }
-    static int category(ItemStack stack){ String id=registryId(stack).toLowerCase(Locale.ROOT); if(stack.has(DataComponents.FOOD)||containsAny(id,"apple","bread","stew","soup","cookie","cake","carrot","potato","beef","porkchop","chicken","mutton","rabbit","salmon","cod","melon","berry"))return 0; if(containsAny(id,"sword","axe","pickaxe","shovel","hoe","bow","crossbow","trident","mace","shield","helmet","chestplate","leggings","boots","elytra","fishing_rod","shears","flint_and_steel"))return 1; if(containsAny(id,"ingot","nugget","diamond","emerald","netherite","raw_","_ore","ore_","ancient_debris","amethyst_shard","lapis_lazuli","quartz"))return 2; if(containsAny(id,"spawn_egg","rotten_flesh","bone","gunpowder","spider_eye","ender_pearl","blaze_rod","ghast_tear","slime_ball","magma_cream","phantom_membrane","shulker_shell","prismarine_shard"))return 4; return 3; }
+    static int category(ItemStack stack){
+        String id=registryId(stack).toLowerCase(Locale.ROOT);
+        // Explicit monster/entity drops win over FOOD because rotten flesh is technically edible.
+        if(containsAny(id,"spawn_egg","rotten_flesh","bone","gunpowder","spider_eye","ender_pearl","blaze_rod","ghast_tear","slime_ball","magma_cream","phantom_membrane","shulker_shell","prismarine_shard"))return 4;
+        if(stack.has(DataComponents.FOOD)||containsAny(id,"apple","bread","stew","soup","cookie","cake","carrot","potato","beef","porkchop","chicken","mutton","rabbit","salmon","cod","melon","berry"))return 0;
+        if(containsAny(id,"sword","axe","pickaxe","shovel","hoe","bow","crossbow","trident","mace","shield","helmet","chestplate","leggings","boots","elytra","fishing_rod","shears","flint_and_steel"))return 1;
+        if(containsAny(id,"ingot","nugget","diamond","emerald","netherite","raw_","_ore","ore_","ancient_debris","amethyst_shard","lapis_lazuli","quartz"))return 2;
+        return 3;
+    }
     private static String registryId(ItemStack stack){ return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(); }
     private static boolean containsAny(String id,String...needles){for(String needle:needles)if(id.contains(needle))return true;return false;}
     static void verifyConservation(List<ItemStack> before,List<ItemStack> after,String operation){for(ItemStack stack:before){if(stack==null||stack.isEmpty())continue;int expected=countMatching(before,stack),actual=countMatching(after,stack);if(expected!=actual)throw new IllegalStateException(operation+" would change item count for "+stack.getItem()+": "+expected+" -> "+actual);}for(ItemStack stack:after){if(stack==null||stack.isEmpty())continue;int expected=countMatching(before,stack),actual=countMatching(after,stack);if(expected!=actual)throw new IllegalStateException(operation+" introduced or changed "+stack.getItem()+": "+expected+" -> "+actual);}}
