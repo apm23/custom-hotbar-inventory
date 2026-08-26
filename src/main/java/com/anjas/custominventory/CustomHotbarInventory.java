@@ -56,13 +56,9 @@ public final class CustomHotbarInventory implements ModInitializer {
     private static void registerReceivers() {
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.BrowseOpen.TYPE, (payload, context) -> {
             ServerPlayer player = context.player();
-            if (player.containerMenu == player.inventoryMenu) {
-                InventoryStorage.setBrowsing(player, true);
-            }
+            if (player.containerMenu == player.inventoryMenu) InventoryStorage.setBrowsing(player, true);
         });
-        ServerPlayNetworking.registerGlobalReceiver(ModPayloads.BrowseClose.TYPE, (payload, context) ->
-                InventoryStorage.setBrowsing(context.player(), false));
-
+        ServerPlayNetworking.registerGlobalReceiver(ModPayloads.BrowseClose.TYPE, (payload, context) -> InventoryStorage.setBrowsing(context.player(), false));
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.CyclePage.TYPE, (payload, context) -> {
             if (canManagePages(context.player())) InventoryStorage.cycle(context.player());
         });
@@ -73,7 +69,6 @@ public final class CustomHotbarInventory implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.MergeAll.TYPE, (payload, context) -> {
             if (canManagePages(context.player())) InventoryAlgorithms.mergeAll(context.player());
         });
-
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.DirectPage.P1.TYPE, (payload, context) -> direct(context.player(), 0));
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.DirectPage.P2.TYPE, (payload, context) -> direct(context.player(), 1));
         ServerPlayNetworking.registerGlobalReceiver(ModPayloads.DirectPage.P3.TYPE, (payload, context) -> direct(context.player(), 2));
@@ -86,8 +81,10 @@ public final class CustomHotbarInventory implements ModInitializer {
 
     private static void registerLifecycle() {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> InventoryAlgorithms.runStartupSelfTests());
-
-        ServerPlayerEvents.JOIN.register(player -> InventoryStorage.setBrowsing(player, false));
+        ServerPlayerEvents.JOIN.register(player -> {
+            InventoryStorage.setBrowsing(player, false);
+            InventoryStorage.migrateLegacy(player);
+        });
         ServerPlayerEvents.LEAVE.register(player -> {
             InventoryStorage.setBrowsing(player, false);
             InventoryStorage.snapshotLive(player);
@@ -96,39 +93,28 @@ public final class CustomHotbarInventory implements ModInitializer {
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
             if (!(entity instanceof ServerPlayer player)) return;
             InventoryStorage.setBrowsing(player, false);
-            if (player.level().getGameRules().get(GameRules.KEEP_INVENTORY)) {
-                InventoryStorage.snapshotLive(player);
-            } else {
-                InventoryStorage.dropHiddenOnDeath(player);
-            }
+            if (player.level().getGameRules().get(GameRules.KEEP_INVENTORY)) InventoryStorage.snapshotLive(player);
+            else InventoryStorage.dropHiddenOnDeath(player);
         });
 
         ServerPlayerEvents.COPY_FROM.register((oldPlayer, newPlayer, alive) -> {
             boolean keepInventory = oldPlayer.level().getGameRules().get(GameRules.KEEP_INVENTORY);
-            if (alive || keepInventory) {
-                InventoryStorage.copyState(oldPlayer, newPlayer);
-            } else {
+            if (alive || keepInventory) InventoryStorage.copyState(oldPlayer, newPlayer);
+            else {
                 InventoryStorage.clearStoredPages(newPlayer);
                 InventoryStorage.writeAltHotbar(newPlayer, List.of());
             }
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
-            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                InventoryStorage.routeOverflow(player);
-            }
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) InventoryStorage.routeOverflow(player);
         });
     }
 
     private static boolean canManagePages(ServerPlayer player) {
         return InventoryStorage.isBrowsing(player) && player.containerMenu == player.inventoryMenu;
     }
-
-    private static void direct(ServerPlayer player, int page) {
-        if (canManagePages(player)) {
-            InventoryStorage.switchPage(player, page);
-        }
-    }
+    private static void direct(ServerPlayer player, int page) { if (canManagePages(player)) InventoryStorage.switchPage(player, page); }
 
     private static <T extends net.minecraft.network.protocol.common.custom.CustomPacketPayload> void register(
             net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<T> type,
@@ -140,12 +126,8 @@ public final class CustomHotbarInventory implements ModInitializer {
         Inventory inv = player.getInventory();
         AttachmentTarget target = (AttachmentTarget) player;
         List<ItemStack> stored = target.getAttachedOrElse(InventoryStorage.ALT_HOTBAR, List.of());
-
         ArrayList<ItemStack> current = new ArrayList<>(9);
-        for (int i = 0; i < 9; i++) {
-            current.add(inv.getItem(i).copy());
-        }
-
+        for (int i = 0; i < 9; i++) current.add(inv.getItem(i).copy());
         for (int i = 0; i < 9; i++) {
             ItemStack stack = i < stored.size() && stored.get(i) != null ? stored.get(i) : ItemStack.EMPTY;
             inv.setItem(i, stack.copy());
