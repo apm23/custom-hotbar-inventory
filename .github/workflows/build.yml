@@ -29,11 +29,14 @@ jobs:
           rm -f server-smoke.log server.pid
           mkdir -p run
           printf 'eula=true\n' > run/eula.txt
+          printf 'online-mode=false\nserver-port=25565\n' > run/server.properties
           gradle runServer --args='nogui' > server-smoke.log 2>&1 &
           echo $! > server.pid
           ok=0
           for i in $(seq 1 90); do
-            if grep -Fq 'Custom Hotbar Inventory initialized' server-smoke.log && grep -Eq 'Done \(.*\)! For help' server-smoke.log; then
+            if grep -Fq 'Custom Hotbar Inventory initialized' server-smoke.log && \
+               grep -Fq 'Inventory sort/merge startup self-tests passed' server-smoke.log && \
+               grep -Eq 'Done \(.*\)! For help' server-smoke.log; then
               ok=1
               break
             fi
