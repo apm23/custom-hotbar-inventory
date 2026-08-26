@@ -1,6 +1,7 @@
 package com.anjas.custominventory.client;
 
 import com.anjas.custominventory.CustomHotbarInventory;
+import com.anjas.custominventory.InputDebounce;
 import com.anjas.custominventory.ModPayloads;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
@@ -19,8 +20,12 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class CustomHotbarInventoryClient implements ClientModInitializer {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(CustomHotbarInventory.id("controls"));
+    private static final long HOTBAR_DEBOUNCE_NANOS = 180_000_000L;
 
     private final KeyMapping cycleInventory = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.custom_hotbar_inventory.cycle_inventory", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY));
@@ -31,6 +36,8 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     private final KeyMapping mergeAll = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.custom_hotbar_inventory.merge_all", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, CATEGORY));
 
+    private final InputDebounce hotbarDebounce = new InputDebounce(HOTBAR_DEBOUNCE_NANOS);
+    private final List<Button> pageButtons = new ArrayList<>(8);
     private int visiblePage = 0;
 
     @Override
@@ -39,17 +46,19 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
 
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
             installGuiInput(screen);
-
             if (!isPlayerInventoryScreen(screen)) return;
 
             visiblePage = 0;
+            pageButtons.clear();
             if (ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE)) {
                 ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
             }
             sendPage(0);
             addPageButtons(screen, width, height);
+            refreshPageButtons();
 
             ScreenEvents.remove(screen).register(removed -> {
+                pageButtons.clear();
                 if (ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE)) {
                     ClientPlayNetworking.send(new ModPayloads.BrowseClose());
                 }
@@ -58,7 +67,7 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.gui.screen() == null) {
-                consumeOutsideGui(swapHotbar, () -> sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE));
+                consumeHotbarOutsideGui();
                 drain(cycleInventory);
                 drain(sortAll);
                 drain(mergeAll);
@@ -76,7 +85,6 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
             InputConstants.Key input = InputConstants.getKey(event);
             return !handleGuiInput(s, input);
         });
-
         ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> {
             InputConstants.Key input = InputConstants.Type.MOUSE.getOrCreate(event.button());
             return !handleGuiInput(s, input);
@@ -85,14 +93,16 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
 
     private boolean handleGuiInput(Screen screen, InputConstants.Key input) {
         if (matches(swapHotbar, input)) {
-            sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
+            if (hotbarDebounce.tryAcquire(System.nanoTime())) {
+                sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
+            }
             return true;
         }
-
         if (!isPlayerInventoryScreen(screen)) return false;
 
         if (matches(cycleInventory, input)) {
             visiblePage = (visiblePage + 1) & 7;
+            refreshPageButtons();
             sendIfPossible(new ModPayloads.CyclePage(), ModPayloads.CyclePage.TYPE);
             return true;
         }
@@ -107,12 +117,16 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         return false;
     }
 
-    private static boolean matches(KeyMapping mapping, InputConstants.Key input) {
-        return KeyMappingHelper.getBoundKeyOf(mapping).equals(input);
+    private void consumeHotbarOutsideGui() {
+        boolean clicked = false;
+        while (swapHotbar.consumeClick()) clicked = true;
+        if (clicked && hotbarDebounce.tryAcquire(System.nanoTime())) {
+            sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
+        }
     }
 
-    private static void consumeOutsideGui(KeyMapping mapping, Runnable action) {
-        while (mapping.consumeClick()) action.run();
+    private static boolean matches(KeyMapping mapping, InputConstants.Key input) {
+        return KeyMappingHelper.getBoundKeyOf(mapping).equals(input);
     }
 
     private static void drain(KeyMapping mapping) {
@@ -126,20 +140,35 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     }
 
     private void addPageButtons(Screen screen, int width, int height) {
-        final int buttonWidth = 18;
-        final int buttonHeight = 18;
+        // Compact 4x2 selector in the unused upper-right inventory space.
+        // Coordinates are relative to vanilla's 176x166 inventory panel.
+        final int guiLeft = (width - 176) / 2;
+        final int guiTop = (height - 166) / 2;
+        final int buttonWidth = 11;
+        final int buttonHeight = 11;
         final int gap = 1;
-        final int totalWidth = 8 * buttonWidth + 7 * gap;
-        final int x0 = width / 2 - totalWidth / 2;
-        final int y = Math.max(4, (height - 166) / 2 - 21);
+        final int x0 = guiLeft + 121;
+        final int y0 = guiTop + 27;
 
         for (int page = 0; page < 8; page++) {
             final int target = page;
+            int col = page % 4;
+            int row = page / 4;
             Button button = Button.builder(Component.literal(Integer.toString(page + 1)), b -> {
                 visiblePage = target;
+                refreshPageButtons();
                 sendPage(target);
-            }).bounds(x0 + page * (buttonWidth + gap), y, buttonWidth, buttonHeight).build();
+            }).bounds(x0 + col * (buttonWidth + gap), y0 + row * (buttonHeight + gap), buttonWidth, buttonHeight).build();
+            pageButtons.add(button);
             Screens.getWidgets(screen).add(button);
+        }
+    }
+
+    private void refreshPageButtons() {
+        for (int i = 0; i < pageButtons.size(); i++) {
+            Button button = pageButtons.get(i);
+            button.active = i != visiblePage;
+            button.setMessage(Component.literal(Integer.toString(i + 1)));
         }
     }
 
@@ -148,12 +177,9 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         sendIfPossible(payload, typeForPage(page));
     }
 
-    private static void sendIfPossible(
-            net.minecraft.network.protocol.common.custom.CustomPacketPayload payload,
-            net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> type) {
-        if (ClientPlayNetworking.canSend(type)) {
-            ClientPlayNetworking.send(payload);
-        }
+    private static void sendIfPossible(net.minecraft.network.protocol.common.custom.CustomPacketPayload payload,
+                                       net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> type) {
+        if (ClientPlayNetworking.canSend(type)) ClientPlayNetworking.send(payload);
     }
 
     private static net.minecraft.network.protocol.common.custom.CustomPacketPayload payloadForPage(int page) {
