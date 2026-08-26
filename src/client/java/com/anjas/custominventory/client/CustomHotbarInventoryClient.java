@@ -8,12 +8,16 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
@@ -21,34 +25,23 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(CustomHotbarInventory.id("controls"));
 
     private final KeyMapping cycleInventory = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.cycle_inventory",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_V,
-            CATEGORY));
-
+            "key.custom_hotbar_inventory.cycle_inventory", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, CATEGORY));
     private final KeyMapping swapHotbar = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.swap_hotbar",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_B,
-            CATEGORY));
-
+            "key.custom_hotbar_inventory.swap_hotbar", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, CATEGORY));
     private final KeyMapping sortAll = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.sort_all",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_N,
-            CATEGORY));
-
+            "key.custom_hotbar_inventory.sort_all", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_N, CATEGORY));
     private final KeyMapping mergeAll = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-            "key.custom_hotbar_inventory.merge_all",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_M,
-            CATEGORY));
+            "key.custom_hotbar_inventory.merge_all", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, CATEGORY));
 
     private int visiblePage = 0;
 
     @Override
     public void onInitializeClient() {
+        CustomHotbarInventory.LOGGER.info("Custom Hotbar Inventory client initialized");
+
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            installGuiInput(screen);
+
             if (!isPlayerInventoryScreen(screen)) return;
 
             visiblePage = 0;
@@ -66,31 +59,71 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (swapHotbar.consumeClick()) {
-                if (client.player != null && ClientPlayNetworking.canSend(ModPayloads.SwapHotbar.TYPE)) {
-                    ClientPlayNetworking.send(new ModPayloads.SwapHotbar());
-                }
-            }
-
-            while (cycleInventory.consumeClick()) {
-                if (client.player != null && isPlayerInventoryScreen(client.gui.screen()) && ClientPlayNetworking.canSend(ModPayloads.CyclePage.TYPE)) {
-                    visiblePage = (visiblePage + 1) & 7;
-                    ClientPlayNetworking.send(new ModPayloads.CyclePage());
-                }
-            }
-
-            while (sortAll.consumeClick()) {
-                if (client.player != null && isPlayerInventoryScreen(client.gui.screen()) && ClientPlayNetworking.canSend(ModPayloads.SortAll.TYPE)) {
-                    ClientPlayNetworking.send(new ModPayloads.SortAll());
-                }
-            }
-
-            while (mergeAll.consumeClick()) {
-                if (client.player != null && isPlayerInventoryScreen(client.gui.screen()) && ClientPlayNetworking.canSend(ModPayloads.MergeAll.TYPE)) {
-                    ClientPlayNetworking.send(new ModPayloads.MergeAll());
-                }
+            if (client.gui.screen() == null) {
+                consumeOutsideGui(swapHotbar, () -> sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE));
+                // Inventory page management is intentionally unavailable when no inventory GUI is visible.
+                drain(cycleInventory);
+                drain(sortAll);
+                drain(mergeAll);
+            } else {
+                // GUI input is handled by ScreenKeyboardEvents/ScreenMouseEvents. Drain KeyMapping click counters
+                // so one GUI click cannot fire again after the screen closes.
+                drain(swapHotbar);
+                drain(cycleInventory);
+                drain(sortAll);
+                drain(mergeAll);
             }
         });
+    }
+
+    private void installGuiInput(Screen screen) {
+        ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> {
+            InputConstants.Key input = InputConstants.getKey(event.key(), event.scancode());
+            return !handleGuiInput(s, input);
+        });
+
+        ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> {
+            InputConstants.Key input = InputConstants.Type.MOUSE.getOrCreate(event.button());
+            return !handleGuiInput(s, input);
+        });
+    }
+
+    private boolean handleGuiInput(Screen screen, InputConstants.Key input) {
+        if (matches(swapHotbar, input)) {
+            sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE);
+            return true;
+        }
+
+        if (!isPlayerInventoryScreen(screen)) return false;
+
+        if (matches(cycleInventory, input)) {
+            visiblePage = (visiblePage + 1) & 7;
+            sendIfPossible(new ModPayloads.CyclePage(), ModPayloads.CyclePage.TYPE);
+            return true;
+        }
+        if (matches(sortAll, input)) {
+            sendIfPossible(new ModPayloads.SortAll(), ModPayloads.SortAll.TYPE);
+            return true;
+        }
+        if (matches(mergeAll, input)) {
+            sendIfPossible(new ModPayloads.MergeAll(), ModPayloads.MergeAll.TYPE);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean matches(KeyMapping mapping, InputConstants.Key input) {
+        return KeyMappingHelper.getBoundKeyOf(mapping).equals(input);
+    }
+
+    private static void consumeOutsideGui(KeyMapping mapping, Runnable action) {
+        while (mapping.consumeClick()) action.run();
+    }
+
+    private static void drain(KeyMapping mapping) {
+        while (mapping.consumeClick()) {
+            // intentionally drained
+        }
     }
 
     private static boolean isPlayerInventoryScreen(Screen screen) {
@@ -116,8 +149,15 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     }
 
     private static void sendPage(int page) {
-        if (ClientPlayNetworking.canSend(typeForPage(page))) {
-            ClientPlayNetworking.send(payloadForPage(page));
+        var payload = payloadForPage(page);
+        sendIfPossible(payload, typeForPage(page));
+    }
+
+    private static void sendIfPossible(
+            net.minecraft.network.protocol.common.custom.CustomPacketPayload payload,
+            net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> type) {
+        if (ClientPlayNetworking.canSend(type)) {
+            ClientPlayNetworking.send(payload);
         }
     }
 
