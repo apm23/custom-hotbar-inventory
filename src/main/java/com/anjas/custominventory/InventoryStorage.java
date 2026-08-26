@@ -74,6 +74,14 @@ public final class InventoryStorage {
         target(player).setAttached(PAGES[page], List.copyOf(normalizedCopy(stacks, PAGE_SIZE)));
     }
 
+    public static List<ItemStack> readAltHotbar(ServerPlayer player) {
+        return normalizedCopy(target(player).getAttachedOrElse(ALT_HOTBAR, List.of()), 9);
+    }
+
+    public static void writeAltHotbar(ServerPlayer player, List<ItemStack> stacks) {
+        target(player).setAttached(ALT_HOTBAR, List.copyOf(normalizedCopy(stacks, 9)));
+    }
+
     public static void snapshotLive(ServerPlayer player) {
         write(player, active(player), liveCopy(player));
     }
@@ -144,6 +152,36 @@ public final class InventoryStorage {
             inv.setItem(MAIN_START + i, safe.get(i).copy());
         }
         inv.setChanged();
+    }
+
+    /** Copy hidden storage to a replacement ServerPlayer (respawn or dimension recreation). */
+    public static void copyState(ServerPlayer oldPlayer, ServerPlayer newPlayer) {
+        snapshotLive(oldPlayer);
+        for (int page = 0; page < PAGE_COUNT; page++) {
+            write(newPlayer, page, read(oldPlayer, page));
+        }
+        writeAltHotbar(newPlayer, readAltHotbar(oldPlayer));
+        target(newPlayer).setAttached(ACTIVE_PAGE, active(oldPlayer));
+        setBrowsing(newPlayer, false);
+    }
+
+    /**
+     * Vanilla only knows about the currently materialized page. With keepInventory=false, hidden pages
+     * and the alternate hotbar must therefore be dropped explicitly exactly once, then cleared.
+     */
+    public static void dropHiddenOnDeath(ServerPlayer player) {
+        int materialized = active(player);
+        for (int page = 0; page < PAGE_COUNT; page++) {
+            if (page == materialized) continue;
+            for (ItemStack stack : read(player, page)) {
+                if (!stack.isEmpty()) player.drop(stack.copy(), true, false);
+            }
+        }
+        for (ItemStack stack : readAltHotbar(player)) {
+            if (!stack.isEmpty()) player.drop(stack.copy(), true, false);
+        }
+        clearStoredPages(player);
+        writeAltHotbar(player, List.of());
     }
 
     public static void clearStoredPages(ServerPlayer player) {
