@@ -2,6 +2,7 @@ package com.anjas.custominventory;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.attachment.v1.AttachmentTarget;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -11,6 +12,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.gamerules.GameRules;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,6 +91,26 @@ public final class CustomHotbarInventory implements ModInitializer {
         ServerPlayerEvents.LEAVE.register(player -> {
             InventoryStorage.setBrowsing(player, false);
             InventoryStorage.snapshotLive(player);
+        });
+
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+            if (!(entity instanceof ServerPlayer player)) return;
+            InventoryStorage.setBrowsing(player, false);
+            if (player.level().getGameRules().get(GameRules.KEEP_INVENTORY)) {
+                InventoryStorage.snapshotLive(player);
+            } else {
+                InventoryStorage.dropHiddenOnDeath(player);
+            }
+        });
+
+        ServerPlayerEvents.COPY_FROM.register((oldPlayer, newPlayer, alive) -> {
+            boolean keepInventory = oldPlayer.level().getGameRules().get(GameRules.KEEP_INVENTORY);
+            if (alive || keepInventory) {
+                InventoryStorage.copyState(oldPlayer, newPlayer);
+            } else {
+                InventoryStorage.clearStoredPages(newPlayer);
+                InventoryStorage.writeAltHotbar(newPlayer, List.of());
+            }
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
