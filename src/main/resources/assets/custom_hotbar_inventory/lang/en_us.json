@@ -1,0 +1,7 @@
+{
+  "key.categories.custom_hotbar_inventory.controls": "Custom Inventory",
+  "key.custom_hotbar_inventory.swap_hotbar": "Hotbar Cycle",
+  "key.custom_hotbar_inventory.cycle_inventory": "Inventory Cycle",
+  "key.custom_hotbar_inventory.sort_all": "Auto Sort",
+  "key.custom_hotbar_inventory.merge_all": "Merge"
+}
