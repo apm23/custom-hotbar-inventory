@@ -16,8 +16,6 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
@@ -61,13 +59,10 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.gui.screen() == null) {
                 consumeOutsideGui(swapHotbar, () -> sendIfPossible(new ModPayloads.SwapHotbar(), ModPayloads.SwapHotbar.TYPE));
-                // Inventory page management is intentionally unavailable when no inventory GUI is visible.
                 drain(cycleInventory);
                 drain(sortAll);
                 drain(mergeAll);
             } else {
-                // GUI input is handled by ScreenKeyboardEvents/ScreenMouseEvents. Drain KeyMapping click counters
-                // so one GUI click cannot fire again after the screen closes.
                 drain(swapHotbar);
                 drain(cycleInventory);
                 drain(sortAll);
@@ -78,7 +73,7 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
 
     private void installGuiInput(Screen screen) {
         ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> {
-            InputConstants.Key input = InputConstants.getKey(event.key(), event.scancode());
+            InputConstants.Key input = InputConstants.getKey(event);
             return !handleGuiInput(s, input);
         });
 
