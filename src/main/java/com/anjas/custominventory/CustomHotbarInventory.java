@@ -27,6 +27,7 @@ public final class CustomHotbarInventory implements ModInitializer {
     @Override
     public void onInitialize() {
         InventoryStorage.register();
+        InventoryAlgorithms.runStartupSelfTests();
         registerPayloads();
         registerReceivers();
         registerLifecycle();
