@@ -3,6 +3,7 @@ package com.anjas.custominventory;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -11,6 +12,50 @@ import java.util.List;
 /** Global operations over all 8 x 27 inventory slots. */
 public final class InventoryAlgorithms {
     private InventoryAlgorithms() {}
+
+    /**
+     * Runs after Fabric/vanilla registries are ready, so these checks exercise real 26.2 ItemStacks/components.
+     * A failure aborts startup instead of allowing a potentially lossy merge/sort build to be deployed.
+     */
+    public static void runStartupSelfTests() {
+        List<ItemStack> mergeBefore = List.of(
+                new ItemStack(Items.STONE, 30),
+                new ItemStack(Items.STONE, 40),
+                new ItemStack(Items.DIRT, 11));
+        List<ItemStack> mergeAfter = merge(mergeBefore);
+        verifyConservation(mergeBefore, mergeAfter, "startup-merge");
+        int stoneCount = mergeAfter.stream().filter(s -> s.is(Items.STONE)).mapToInt(ItemStack::getCount).sum();
+        if (stoneCount != 70 || mergeAfter.stream().anyMatch(s -> s.getCount() > s.getMaxStackSize())) {
+            throw new IllegalStateException("startup merge self-test failed");
+        }
+
+        ItemStack pristine = new ItemStack(Items.DIAMOND_PICKAXE);
+        ItemStack damaged = new ItemStack(Items.DIAMOND_PICKAXE);
+        damaged.setDamageValue(1);
+        List<ItemStack> componentMerge = merge(List.of(pristine, damaged));
+        if (componentMerge.size() != 2 || ItemStack.isSameItemSameComponents(componentMerge.get(0), componentMerge.get(1))) {
+            throw new IllegalStateException("component-safe merge self-test failed");
+        }
+
+        if (category(new ItemStack(Items.BREAD)) != 0
+                || category(new ItemStack(Items.DIAMOND_PICKAXE)) != 1
+                || category(new ItemStack(Items.DIAMOND)) != 2
+                || category(new ItemStack(Items.REDSTONE)) != 3
+                || category(new ItemStack(Items.ROTTEN_FLESH)) != 4) {
+            throw new IllegalStateException("sort category self-test failed");
+        }
+
+        List<ItemStack> lossBefore = List.of(new ItemStack(Items.IRON_INGOT, 10));
+        boolean rejectedLoss = false;
+        try {
+            verifyConservation(lossBefore, List.of(new ItemStack(Items.IRON_INGOT, 9)), "startup-loss-probe");
+        } catch (IllegalStateException expected) {
+            rejectedLoss = true;
+        }
+        if (!rejectedLoss) throw new IllegalStateException("conservation guard failed to reject item loss");
+
+        CustomHotbarInventory.LOGGER.info("Inventory sort/merge startup self-tests passed");
+    }
 
     public static void mergeAll(ServerPlayer player) {
         List<ItemStack> before = collect(player);
