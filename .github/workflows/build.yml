@@ -2,20 +2,117 @@ name: build-and-verify
 on:
   push:
   pull_request:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Compile and test
-        run: gradle clean build --stacktrace
+
+      - name: Clean compile and unit tests
+        run: gradle clean test build --stacktrace
+
+      - name: Dedicated server startup smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f server-smoke.log server.pid
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          gradle runServer --args='nogui' > server-smoke.log 2>&1 &
+          echo $! > server.pid
+          ok=0
+          for i in $(seq 1 90); do
+            if grep -Fq 'Custom Hotbar Inventory initialized' server-smoke.log && grep -Eq 'Done \(.*\)! For help' server-smoke.log; then
+              ok=1
+              break
+            fi
+            if ! kill -0 "$(cat server.pid)" 2>/dev/null; then
+              echo 'Dedicated server exited before startup completed'
+              cat server-smoke.log
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo 'Dedicated server startup timed out'
+            cat server-smoke.log
+            exit 1
+          fi
+          kill "$(cat server.pid)" 2>/dev/null || true
+          pkill -f 'net.fabricmc.loader.impl.launch.knot.KnotServer' 2>/dev/null || true
+          sleep 2
+          if grep -Eiq 'Exception|Caused by:|Could not execute entrypoint|A mod crashed|Crash report' server-smoke.log; then
+            echo 'Dedicated server log contains a crash/error signature'
+            cat server-smoke.log
+            exit 1
+          fi
+          echo 'Dedicated server smoke passed'
+
+      - name: Client startup smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f client-smoke.log client.pid
+          command -v xvfb-run >/dev/null
+          xvfb-run -a gradle runClient > client-smoke.log 2>&1 &
+          echo $! > client.pid
+          ok=0
+          for i in $(seq 1 120); do
+            if grep -Fq 'Custom Hotbar Inventory client initialized' client-smoke.log; then
+              ok=1
+              break
+            fi
+            if ! kill -0 "$(cat client.pid)" 2>/dev/null; then
+              echo 'Client exited before mod client entrypoint initialized'
+              cat client-smoke.log
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo 'Client startup timed out'
+            cat client-smoke.log
+            exit 1
+          fi
+          sleep 5
+          if ! kill -0 "$(cat client.pid)" 2>/dev/null; then
+            echo 'Client crashed shortly after client entrypoint initialized'
+            cat client-smoke.log
+            exit 1
+          fi
+          kill "$(cat client.pid)" 2>/dev/null || true
+          pkill -f 'net.fabricmc.loader.impl.launch.knot.KnotClient' 2>/dev/null || true
+          sleep 2
+          if grep -Eiq 'Could not execute entrypoint|A mod crashed|Crash report|ExceptionInInitializerError|NoClassDefFoundError|ClassNotFoundException.*custominventory' client-smoke.log; then
+            echo 'Client log contains a crash/error signature'
+            cat client-smoke.log
+            exit 1
+          fi
+          echo 'Client smoke passed'
+
+      - name: Verify deployable jar contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR=$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | head -n1)
+          test -n "$JAR"
+          jar tf "$JAR" | grep -Fx 'fabric.mod.json'
+          jar tf "$JAR" | grep -Fx 'com/anjas/custominventory/CustomHotbarInventory.class'
+          jar tf "$JAR" | grep -Fx 'com/anjas/custominventory/client/CustomHotbarInventoryClient.class'
+          unzip -t "$JAR"
+          echo "Verified $JAR"
+
       - uses: actions/upload-artifact@v4
         with:
           name: custom-hotbar-inventory
