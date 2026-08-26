@@ -1,6 +1,7 @@
 package com.anjas.custominventory;
 
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -8,6 +9,7 @@ import net.minecraft.world.item.Items;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 /** Global operations over all 8 x 27 inventory slots. */
 public final class InventoryAlgorithms {
@@ -71,7 +73,7 @@ public final class InventoryAlgorithms {
 
         sorted.sort(Comparator
                 .comparingInt(InventoryAlgorithms::category)
-                .thenComparing(s -> s.getItem().toString())
+                .thenComparing(InventoryAlgorithms::registryId)
                 .thenComparingInt(ItemStack::getCount));
 
         verifyConservation(before, sorted, "sort");
@@ -146,7 +148,7 @@ public final class InventoryAlgorithms {
      * Unknown and modded items deliberately stay in GENERAL rather than being guessed into a special group.
      */
     static int category(ItemStack stack) {
-        String id = stack.getItem().toString().toLowerCase();
+        String id = registryId(stack).toLowerCase(Locale.ROOT);
 
         if (stack.has(DataComponents.FOOD)
                 || containsAny(id, "apple", "bread", "stew", "soup", "cookie", "cake", "carrot", "potato", "beef", "porkchop", "chicken", "mutton", "rabbit", "salmon", "cod", "melon", "berry")) {
@@ -172,6 +174,10 @@ public final class InventoryAlgorithms {
         }
 
         return 3;
+    }
+
+    private static String registryId(ItemStack stack) {
+        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     }
 
     private static boolean containsAny(String id, String... needles) {
