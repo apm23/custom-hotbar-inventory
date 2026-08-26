@@ -6,43 +6,18 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 public final class ModPayloads {
     private ModPayloads() {}
-
-    public record CyclePage() implements CustomPacketPayload {
-        public static final Type<CyclePage> TYPE = new Type<>(CustomHotbarInventory.id("cycle_page"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, CyclePage> CODEC = StreamCodec.unit(new CyclePage());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    public record CyclePage() implements CustomPacketPayload { public static final Type<CyclePage> TYPE=new Type<>(CustomHotbarInventory.id("cycle_page")); public static final StreamCodec<RegistryFriendlyByteBuf,CyclePage> CODEC=StreamCodec.unit(new CyclePage()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    public record SwapHotbar() implements CustomPacketPayload { public static final Type<SwapHotbar> TYPE=new Type<>(CustomHotbarInventory.id("swap_hotbar")); public static final StreamCodec<RegistryFriendlyByteBuf,SwapHotbar> CODEC=StreamCodec.unit(new SwapHotbar()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    public record SortAll() implements CustomPacketPayload { public static final Type<SortAll> TYPE=new Type<>(CustomHotbarInventory.id("sort_all")); public static final StreamCodec<RegistryFriendlyByteBuf,SortAll> CODEC=StreamCodec.unit(new SortAll()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    public record MergeAll() implements CustomPacketPayload { public static final Type<MergeAll> TYPE=new Type<>(CustomHotbarInventory.id("merge_all")); public static final StreamCodec<RegistryFriendlyByteBuf,MergeAll> CODEC=StreamCodec.unit(new MergeAll()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    public record BrowseOpen() implements CustomPacketPayload { public static final Type<BrowseOpen> TYPE=new Type<>(CustomHotbarInventory.id("browse_open")); public static final StreamCodec<RegistryFriendlyByteBuf,BrowseOpen> CODEC=StreamCodec.unit(new BrowseOpen()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    public record BrowseClose() implements CustomPacketPayload { public static final Type<BrowseClose> TYPE=new Type<>(CustomHotbarInventory.id("browse_close")); public static final StreamCodec<RegistryFriendlyByteBuf,BrowseClose> CODEC=StreamCodec.unit(new BrowseClose()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
+    /** Server authoritative active-page update for selector highlighting. */
+    public record PageState(int page) implements CustomPacketPayload {
+        public static final Type<PageState> TYPE=new Type<>(CustomHotbarInventory.id("page_state"));
+        public static final StreamCodec<RegistryFriendlyByteBuf,PageState> CODEC=StreamCodec.of((buf,p)->buf.writeVarInt(p.page),(buf)->new PageState(buf.readVarInt()));
+        @Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
     }
-
-    public record SwapHotbar() implements CustomPacketPayload {
-        public static final Type<SwapHotbar> TYPE = new Type<>(CustomHotbarInventory.id("swap_hotbar"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, SwapHotbar> CODEC = StreamCodec.unit(new SwapHotbar());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-    }
-
-    public record SortAll() implements CustomPacketPayload {
-        public static final Type<SortAll> TYPE = new Type<>(CustomHotbarInventory.id("sort_all"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, SortAll> CODEC = StreamCodec.unit(new SortAll());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-    }
-
-    public record MergeAll() implements CustomPacketPayload {
-        public static final Type<MergeAll> TYPE = new Type<>(CustomHotbarInventory.id("merge_all"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, MergeAll> CODEC = StreamCodec.unit(new MergeAll());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-    }
-
-    public record BrowseOpen() implements CustomPacketPayload {
-        public static final Type<BrowseOpen> TYPE = new Type<>(CustomHotbarInventory.id("browse_open"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, BrowseOpen> CODEC = StreamCodec.unit(new BrowseOpen());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-    }
-
-    public record BrowseClose() implements CustomPacketPayload {
-        public static final Type<BrowseClose> TYPE = new Type<>(CustomHotbarInventory.id("browse_close"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, BrowseClose> CODEC = StreamCodec.unit(new BrowseClose());
-        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-    }
-
     public static final class DirectPage {
         private DirectPage() {}
         public record P1() implements CustomPacketPayload { public static final Type<P1> TYPE=new Type<>(CustomHotbarInventory.id("page_1")); public static final StreamCodec<RegistryFriendlyByteBuf,P1> CODEC=StreamCodec.unit(new P1()); @Override public Type<? extends CustomPacketPayload> type(){return TYPE;} }
