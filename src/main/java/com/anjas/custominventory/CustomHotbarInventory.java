@@ -24,7 +24,7 @@ public final class CustomHotbarInventory implements ModInitializer {
     @Override public void onInitialize(){InventoryStorage.register();registerPayloads();registerReceivers();registerLifecycle();LOGGER.info("Custom Hotbar Inventory initialized");}
     private static void registerPayloads(){
         register(ModPayloads.CyclePage.TYPE,ModPayloads.CyclePage.CODEC); register(ModPayloads.SwapHotbar.TYPE,ModPayloads.SwapHotbar.CODEC); register(ModPayloads.SortAll.TYPE,ModPayloads.SortAll.CODEC); register(ModPayloads.MergeAll.TYPE,ModPayloads.MergeAll.CODEC); register(ModPayloads.BrowseOpen.TYPE,ModPayloads.BrowseOpen.CODEC); register(ModPayloads.BrowseClose.TYPE,ModPayloads.BrowseClose.CODEC);
-        PayloadTypeRegistry.playS2C().register(ModPayloads.PageState.TYPE,ModPayloads.PageState.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(ModPayloads.PageState.TYPE,ModPayloads.PageState.CODEC);
         register(ModPayloads.DirectPage.P1.TYPE,ModPayloads.DirectPage.P1.CODEC);register(ModPayloads.DirectPage.P2.TYPE,ModPayloads.DirectPage.P2.CODEC);register(ModPayloads.DirectPage.P3.TYPE,ModPayloads.DirectPage.P3.CODEC);register(ModPayloads.DirectPage.P4.TYPE,ModPayloads.DirectPage.P4.CODEC);register(ModPayloads.DirectPage.P5.TYPE,ModPayloads.DirectPage.P5.CODEC);register(ModPayloads.DirectPage.P6.TYPE,ModPayloads.DirectPage.P6.CODEC);register(ModPayloads.DirectPage.P7.TYPE,ModPayloads.DirectPage.P7.CODEC);register(ModPayloads.DirectPage.P8.TYPE,ModPayloads.DirectPage.P8.CODEC);
     }
     private static void registerReceivers(){
