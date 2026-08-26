@@ -49,11 +49,20 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
-            if (isPlayerInventoryScreen(screen)) {
-                visiblePage = 0;
-                sendPage(0);
-                addPageButtons(screen, width, height);
+            if (!isPlayerInventoryScreen(screen)) return;
+
+            visiblePage = 0;
+            if (ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE)) {
+                ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
             }
+            sendPage(0);
+            addPageButtons(screen, width, height);
+
+            ScreenEvents.remove(screen).register(removed -> {
+                if (ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE)) {
+                    ClientPlayNetworking.send(new ModPayloads.BrowseClose());
+                }
+            });
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
