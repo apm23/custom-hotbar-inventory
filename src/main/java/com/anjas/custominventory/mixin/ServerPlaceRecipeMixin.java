@@ -27,6 +27,7 @@ import java.util.List;
 @Mixin(ServerPlaceRecipe.class)
 public abstract class ServerPlaceRecipeMixin {
     @Shadow @Final private Inventory inventory;
+    @Shadow @Final private List<Slot> slotsToClear;
     @Unique private boolean custominventory$hiddenDirty;
 
     @Redirect(
@@ -42,6 +43,32 @@ public abstract class ServerPlaceRecipeMixin {
             if (page == active) continue;
             for (ItemStack stack : InventoryStorage.read(player, page)) contents.accountSimpleStack(stack);
         }
+    }
+
+    /**
+     * Vanilla only checks the 36 materialized inventory slots before it clears the crafting grid.
+     * With paged storage that can incorrectly reject every recipe click while hidden pages still
+     * have room. If vanilla says no, retry the capacity check against the unified paged inventory.
+     */
+    @Inject(method = "testClearGrid", at = @At("RETURN"), cancellable = true)
+    private void custominventory$allowClearIntoHiddenPages(CallbackInfoReturnable<Boolean> cir) {
+        if (cir.getReturnValueZ()) return;
+        if (!(this.inventory.player instanceof ServerPlayer player)) return;
+        if (custominventory$canFitCraftGridAcrossPages(player)) cir.setReturnValue(true);
+    }
+
+    /**
+     * Keep vanilla's normal active-inventory insertion first. If it leaves a remainder, store that
+     * remainder in hidden pages instead of letting the paged inventory look artificially full.
+     */
+    @Redirect(
+        method = "clearGrid",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Inventory;placeItemBackInInventory(Lnet/minecraft/world/item/ItemStack;Z)V")
+    )
+    private void custominventory$returnCraftItemAcrossPages(Inventory inventory, ItemStack stack, boolean sendPacket) {
+        inventory.placeItemBackInInventory(stack, sendPacket);
+        if (stack.isEmpty() || !(inventory.player instanceof ServerPlayer player)) return;
+        if (custominventory$insertIntoHiddenPages(player, stack)) this.custominventory$hiddenDirty = true;
     }
 
     @Inject(method = "moveItemToGrid", at = @At("HEAD"), cancellable = true)
@@ -82,5 +109,92 @@ public abstract class ServerPlaceRecipeMixin {
         if (!(this.inventory.player instanceof ServerPlayer player)) return;
         InventoryStorage.sync(player);
         CustomHotbarInventory.sendHiddenRecipeState(player);
+    }
+
+    @Unique
+    private boolean custominventory$canFitCraftGridAcrossPages(ServerPlayer player) {
+        ArrayList<ItemStack> simulated = new ArrayList<>();
+        for (ItemStack stack : this.inventory.getNonEquipmentItems()) simulated.add(stack.copy());
+
+        int active = InventoryStorage.active(player);
+        for (int page = 0; page < InventoryStorage.PAGE_COUNT; page++) {
+            if (page == active) continue;
+            for (ItemStack stack : InventoryStorage.read(player, page)) simulated.add(stack.copy());
+        }
+
+        for (Slot slot : this.slotsToClear) {
+            ItemStack incoming = slot.getItem().copy();
+            if (!custominventory$simulateInsert(simulated, incoming)) return false;
+        }
+        return true;
+    }
+
+    @Unique
+    private static boolean custominventory$simulateInsert(List<ItemStack> slots, ItemStack incoming) {
+        if (incoming.isEmpty()) return true;
+
+        for (ItemStack existing : slots) {
+            if (existing.isEmpty() || !ItemStack.isSameItemSameComponents(existing, incoming)) continue;
+            int space = existing.getMaxStackSize() - existing.getCount();
+            if (space <= 0) continue;
+            int moved = Math.min(space, incoming.getCount());
+            existing.grow(moved);
+            incoming.shrink(moved);
+            if (incoming.isEmpty()) return true;
+        }
+
+        for (int i = 0; i < slots.size(); i++) {
+            if (!slots.get(i).isEmpty()) continue;
+            int moved = Math.min(incoming.getMaxStackSize(), incoming.getCount());
+            slots.set(i, incoming.copyWithCount(moved));
+            incoming.shrink(moved);
+            if (incoming.isEmpty()) return true;
+        }
+        return false;
+    }
+
+    @Unique
+    private static boolean custominventory$insertIntoHiddenPages(ServerPlayer player, ItemStack incoming) {
+        int active = InventoryStorage.active(player);
+        boolean changed = false;
+
+        // Merge first so clearing a crafting grid does not waste empty page slots.
+        for (int page = 0; page < InventoryStorage.PAGE_COUNT && !incoming.isEmpty(); page++) {
+            if (page == active) continue;
+            List<ItemStack> stored = new ArrayList<>(InventoryStorage.read(player, page));
+            boolean pageChanged = false;
+            for (int slot = 0; slot < stored.size() && !incoming.isEmpty(); slot++) {
+                ItemStack existing = stored.get(slot);
+                if (existing.isEmpty() || !ItemStack.isSameItemSameComponents(existing, incoming)) continue;
+                int space = existing.getMaxStackSize() - existing.getCount();
+                if (space <= 0) continue;
+                int moved = Math.min(space, incoming.getCount());
+                existing.grow(moved);
+                incoming.shrink(moved);
+                pageChanged = true;
+            }
+            if (pageChanged) {
+                InventoryStorage.write(player, page, stored);
+                changed = true;
+            }
+        }
+
+        for (int page = 0; page < InventoryStorage.PAGE_COUNT && !incoming.isEmpty(); page++) {
+            if (page == active) continue;
+            List<ItemStack> stored = new ArrayList<>(InventoryStorage.read(player, page));
+            boolean pageChanged = false;
+            for (int slot = 0; slot < stored.size() && !incoming.isEmpty(); slot++) {
+                if (!stored.get(slot).isEmpty()) continue;
+                int moved = Math.min(incoming.getMaxStackSize(), incoming.getCount());
+                stored.set(slot, incoming.copyWithCount(moved));
+                incoming.shrink(moved);
+                pageChanged = true;
+            }
+            if (pageChanged) {
+                InventoryStorage.write(player, page, stored);
+                changed = true;
+            }
+        }
+        return changed;
     }
 }
