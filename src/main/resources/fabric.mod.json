@@ -11,6 +11,7 @@
     "client": ["com.anjas.custominventory.client.CustomHotbarInventoryClient"]
   },
   "mixins": [
+    "custom_hotbar_inventory.mixins.json",
     {
       "config": "custom_hotbar_inventory.client.mixins.json",
       "environment": "client"
