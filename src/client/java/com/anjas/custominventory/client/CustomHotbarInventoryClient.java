@@ -37,15 +37,18 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
     @Override public void onInitializeClient(){
         CustomHotbarInventory.LOGGER.info("Custom Hotbar Inventory client initialized");
         ClientPlayNetworking.registerGlobalReceiver(ModPayloads.PageState.TYPE,(payload,context)->context.client().execute(()->{visiblePage=Math.max(0,Math.min(7,payload.page()));refreshPageButtons();}));
+        ClientPlayNetworking.registerGlobalReceiver(ModPayloads.HiddenRecipeContents.TYPE,(payload,context)->context.client().execute(()->{
+            HiddenRecipeContentsClient.replace(payload.stacks());
+            if(context.client().player!=null)context.client().player.getInventory().setChanged();
+        }));
         ScreenEvents.AFTER_INIT.register((client,screen,width,height)->{
             installGuiInput(screen);
             if(!isManagedContainer(screen))return;
             pageButtons.clear();
+            HiddenRecipeContentsClient.clear();
             if(ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
-            // Keep direct numbered selector limited to vanilla survival inventory; other container screens
-            // use the same Inventory Cycle keybind without adding buttons over their UI.
             if(screen instanceof InventoryScreen){addPageButtons(screen,width,height);refreshPageButtons();}
-            ScreenEvents.remove(screen).register(removed->{pageButtons.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
+            ScreenEvents.remove(screen).register(removed->{pageButtons.clear();HiddenRecipeContentsClient.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
         });
         ClientTickEvents.END_CLIENT_TICK.register(client->{if(client.gui.screen()==null){consumeHotbarOutsideGui();drain(cycleInventory);drain(sortAll);drain(mergeAll);}else{drain(swapHotbar);drain(cycleInventory);drain(sortAll);drain(mergeAll);}});
     }
@@ -54,8 +57,6 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         if(matches(swapHotbar,input)){if(hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);return true;}
         if(!isManagedContainer(screen))return false;
         if(matches(cycleInventory,input)){if(inventoryDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.CyclePage(),ModPayloads.CyclePage.TYPE);return true;}
-        // Sort/Merge are intentionally kept on the player's own inventory screen to avoid rearranging
-        // hidden pages while another container is mid-interaction.
         if(screen instanceof InventoryScreen && matches(sortAll,input)){sendIfPossible(new ModPayloads.SortAll(),ModPayloads.SortAll.TYPE);return true;}
         if(screen instanceof InventoryScreen && matches(mergeAll,input)){sendIfPossible(new ModPayloads.MergeAll(),ModPayloads.MergeAll.TYPE);return true;}
         return false;
