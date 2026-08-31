@@ -3,6 +3,9 @@ package com.anjas.custominventory;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.world.item.ItemStack;
+
+import java.util.List;
 
 public final class ModPayloads {
     private ModPayloads() {}
@@ -16,6 +19,19 @@ public final class ModPayloads {
     public record PageState(int page) implements CustomPacketPayload {
         public static final Type<PageState> TYPE=new Type<>(CustomHotbarInventory.id("page_state"));
         public static final StreamCodec<RegistryFriendlyByteBuf,PageState> CODEC=StreamCodec.of((buf,p)->buf.writeVarInt(p.page),(buf)->new PageState(buf.readVarInt()));
+        @Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
+    }
+    /**
+     * Recipe-book-only view of the seven non-materialized inventory pages. The active page is
+     * deliberately excluded because vanilla already accounts it from the local player inventory.
+     */
+    public record HiddenRecipeContents(List<ItemStack> stacks) implements CustomPacketPayload {
+        public static final Type<HiddenRecipeContents> TYPE=new Type<>(CustomHotbarInventory.id("hidden_recipe_contents"));
+        public static final StreamCodec<RegistryFriendlyByteBuf,HiddenRecipeContents> CODEC=StreamCodec.of(
+            (buf,p)->ItemStack.OPTIONAL_LIST_STREAM_CODEC.encode(buf,p.stacks),
+            buf->new HiddenRecipeContents(List.copyOf(ItemStack.OPTIONAL_LIST_STREAM_CODEC.decode(buf)))
+        );
+        public HiddenRecipeContents { stacks=List.copyOf(stacks); }
         @Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
     }
     public static final class DirectPage {
