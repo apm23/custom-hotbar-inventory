@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.anjas.custominventory.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerPlaceRecipeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
