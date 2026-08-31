@@ -47,7 +47,7 @@ public final class CustomHotbarInventory implements ModInitializer {
     private static boolean canManagePages(ServerPlayer p){return InventoryStorage.isBrowsing(p)&&p.containerMenu.getCarried().isEmpty();}
     private static void direct(ServerPlayer p,int page){if(canManagePages(p)){InventoryStorage.switchPage(p,page);sendPageState(p);sendHiddenRecipeState(p);}}
     private static void sendPageState(ServerPlayer p){if(ServerPlayNetworking.canSend(p,ModPayloads.PageState.TYPE))ServerPlayNetworking.send(p,new ModPayloads.PageState(InventoryStorage.active(p)));}
-    private static void sendHiddenRecipeState(ServerPlayer p){
+    public static void sendHiddenRecipeState(ServerPlayer p){
         if(!ServerPlayNetworking.canSend(p,ModPayloads.HiddenRecipeContents.TYPE))return;
         int active=InventoryStorage.active(p);
         ArrayList<ItemStack> hidden=new ArrayList<>((InventoryStorage.PAGE_COUNT-1)*InventoryStorage.PAGE_SIZE);
