@@ -1,17 +1,21 @@
 package com.anjas.custominventory.mixin;
 
+import com.anjas.custominventory.CustomHotbarInventory;
 import com.anjas.custominventory.InventoryStorage;
 import net.minecraft.core.Holder;
 import net.minecraft.recipebook.ServerPlaceRecipe;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.StackedItemContents;
+import net.minecraft.world.inventory.RecipeBookMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeHolder;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -23,6 +27,7 @@ import java.util.List;
 @Mixin(ServerPlaceRecipe.class)
 public abstract class ServerPlaceRecipeMixin {
     @Shadow @Final private Inventory inventory;
+    @Unique private boolean custominventory$hiddenDirty;
 
     @Redirect(
         method = "placeRecipe(Lnet/minecraft/recipebook/ServerPlaceRecipe$CraftingMenuAccess;IILjava/util/List;Ljava/util/List;Lnet/minecraft/world/entity/player/Inventory;Lnet/minecraft/world/item/crafting/RecipeHolder;ZZ)Lnet/minecraft/world/inventory/RecipeBookMenu$PostPlaceAction;",
@@ -63,10 +68,19 @@ public abstract class ServerPlaceRecipeMixin {
                 if (target.isEmpty()) targetSlot.set(taken);
                 else target.grow(takenCount);
 
-                InventoryStorage.sync(player);
+                this.custominventory$hiddenDirty = true;
                 cir.setReturnValue(count - takenCount);
                 return;
             }
         }
+    }
+
+    @Inject(method = "tryPlaceRecipe", at = @At("RETURN"))
+    private void custominventory$flushHiddenChanges(RecipeHolder<?> recipe, StackedItemContents availableItems, CallbackInfoReturnable<RecipeBookMenu.PostPlaceAction> cir) {
+        if (!this.custominventory$hiddenDirty) return;
+        this.custominventory$hiddenDirty = false;
+        if (!(this.inventory.player instanceof ServerPlayer player)) return;
+        InventoryStorage.sync(player);
+        CustomHotbarInventory.sendHiddenRecipeState(player);
     }
 }
