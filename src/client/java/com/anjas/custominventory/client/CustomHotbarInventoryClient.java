@@ -15,7 +15,7 @@ import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
@@ -39,26 +39,31 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(ModPayloads.PageState.TYPE,(payload,context)->context.client().execute(()->{visiblePage=Math.max(0,Math.min(7,payload.page()));refreshPageButtons();}));
         ScreenEvents.AFTER_INIT.register((client,screen,width,height)->{
             installGuiInput(screen);
-            if(!isPlayerInventory(screen))return;
+            if(!isManagedContainer(screen))return;
             pageButtons.clear();
             if(ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
-            if(isSurvivalInventory(screen)){addPageButtons(screen,width,height);refreshPageButtons();}
+            // Keep direct numbered selector limited to vanilla survival inventory; other container screens
+            // use the same Inventory Cycle keybind without adding buttons over their UI.
+            if(screen instanceof InventoryScreen){addPageButtons(screen,width,height);refreshPageButtons();}
             ScreenEvents.remove(screen).register(removed->{pageButtons.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
         });
         ClientTickEvents.END_CLIENT_TICK.register(client->{if(client.gui.screen()==null){consumeHotbarOutsideGui();drain(cycleInventory);drain(sortAll);drain(mergeAll);}else{drain(swapHotbar);drain(cycleInventory);drain(sortAll);drain(mergeAll);}});
     }
     private void installGuiInput(Screen screen){ScreenKeyboardEvents.allowKeyPress(screen).register((s,event)->!handleGuiInput(s,InputConstants.getKey(event)));ScreenMouseEvents.allowMouseClick(screen).register((s,event)->!handleGuiInput(s,InputConstants.Type.MOUSE.getOrCreate(event.button())));}
-    private boolean handleGuiInput(Screen screen,InputConstants.Key input){if(matches(swapHotbar,input)){if(hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);return true;}if(!isPlayerInventory(screen))return false;if(matches(cycleInventory,input)){if(inventoryDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.CyclePage(),ModPayloads.CyclePage.TYPE);return true;}if(matches(sortAll,input)){sendIfPossible(new ModPayloads.SortAll(),ModPayloads.SortAll.TYPE);return true;}if(matches(mergeAll,input)){sendIfPossible(new ModPayloads.MergeAll(),ModPayloads.MergeAll.TYPE);return true;}return false;}
+    private boolean handleGuiInput(Screen screen,InputConstants.Key input){
+        if(matches(swapHotbar,input)){if(hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);return true;}
+        if(!isManagedContainer(screen))return false;
+        if(matches(cycleInventory,input)){if(inventoryDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.CyclePage(),ModPayloads.CyclePage.TYPE);return true;}
+        // Sort/Merge are intentionally kept on the player's own inventory screen to avoid rearranging
+        // hidden pages while another container is mid-interaction.
+        if(screen instanceof InventoryScreen && matches(sortAll,input)){sendIfPossible(new ModPayloads.SortAll(),ModPayloads.SortAll.TYPE);return true;}
+        if(screen instanceof InventoryScreen && matches(mergeAll,input)){sendIfPossible(new ModPayloads.MergeAll(),ModPayloads.MergeAll.TYPE);return true;}
+        return false;
+    }
     private void consumeHotbarOutsideGui(){boolean clicked=false;while(swapHotbar.consumeClick())clicked=true;if(clicked&&hotbarDebounce.tryAcquire(System.nanoTime()))sendIfPossible(new ModPayloads.SwapHotbar(),ModPayloads.SwapHotbar.TYPE);}
     private static boolean matches(KeyMapping m,InputConstants.Key input){return KeyMappingHelper.getBoundKeyOf(m).equals(input);} private static void drain(KeyMapping m){while(m.consumeClick()){} }
-    private static boolean isSurvivalInventory(Screen s){return s instanceof InventoryScreen;} private static boolean isPlayerInventory(Screen s){return s instanceof InventoryScreen||s instanceof CreativeModeInventoryScreen;}
-    private void addPageButtons(Screen screen,int width,int height){
-        final int guiLeft=(width-176)/2, guiTop=(height-166)/2;
-        final int bw=9,bh=9,gap=1;
-        // Tiny 2x4 selector in the free strip immediately to the right of the recipe-book button.
-        final int x0=guiLeft+125, y0=guiTop+65;
-        for(int page=0;page<8;page++){final int target=page;int col=page%4,row=page/4;Button b=Button.builder(Component.literal(Integer.toString(page+1)),ignored->sendPage(target)).bounds(x0+col*(bw+gap),y0+row*(bh+gap),bw,bh).build();pageButtons.add(b);Screens.getWidgets(screen).add(b);}
-    }
+    private static boolean isManagedContainer(Screen s){return s instanceof AbstractContainerScreen<?>;}
+    private void addPageButtons(Screen screen,int width,int height){final int guiLeft=(width-176)/2,guiTop=(height-166)/2;final int bw=9,bh=9,gap=1;final int x0=guiLeft+125,y0=guiTop+65;for(int page=0;page<8;page++){final int target=page;int col=page%4,row=page/4;Button b=Button.builder(Component.literal(Integer.toString(page+1)),ignored->sendPage(target)).bounds(x0+col*(bw+gap),y0+row*(bh+gap),bw,bh).build();pageButtons.add(b);Screens.getWidgets(screen).add(b);}}
     private void refreshPageButtons(){for(int i=0;i<pageButtons.size();i++){Button b=pageButtons.get(i);b.active=i!=visiblePage;b.setMessage(Component.literal(Integer.toString(i+1)));}}
     private static void sendPage(int page){sendIfPossible(payloadForPage(page),typeForPage(page));}
     private static void sendIfPossible(net.minecraft.network.protocol.common.custom.CustomPacketPayload p,net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<?> t){if(ClientPlayNetworking.canSend(t))ClientPlayNetworking.send(p);}
