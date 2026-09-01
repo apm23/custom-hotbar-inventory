@@ -45,10 +45,9 @@ public final class CustomHotbarInventoryClient implements ClientModInitializer {
             installGuiInput(screen);
             if(!isManagedContainer(screen))return;
             pageButtons.clear();
-            HiddenRecipeContentsClient.clear();
             if(ClientPlayNetworking.canSend(ModPayloads.BrowseOpen.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseOpen());
             if(screen instanceof InventoryScreen){addPageButtons(screen,width,height);refreshPageButtons();}
-            ScreenEvents.remove(screen).register(removed->{pageButtons.clear();HiddenRecipeContentsClient.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
+            ScreenEvents.remove(screen).register(removed->{pageButtons.clear();if(ClientPlayNetworking.canSend(ModPayloads.BrowseClose.TYPE))ClientPlayNetworking.send(new ModPayloads.BrowseClose());});
         });
         ClientTickEvents.END_CLIENT_TICK.register(client->{if(client.gui.screen()==null){consumeHotbarOutsideGui();drain(cycleInventory);drain(sortAll);drain(mergeAll);}else{drain(swapHotbar);drain(cycleInventory);drain(sortAll);drain(mergeAll);}});
     }
