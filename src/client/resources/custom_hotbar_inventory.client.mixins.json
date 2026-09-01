@@ -3,7 +3,8 @@
   "package": "com.anjas.custominventory.mixin.client",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "RecipeBookComponentMixin"
+    "RecipeBookComponentMixin",
+    "TaczGunHudOverlayMixin"
   ],
   "injectors": {
     "defaultRequire": 1
