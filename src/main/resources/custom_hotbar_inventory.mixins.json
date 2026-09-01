@@ -3,7 +3,8 @@
   "package": "com.anjas.custominventory.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ServerPlaceRecipeMixin"
+    "ServerPlaceRecipeMixin",
+    "MerchantMenuMixin"
   ],
   "injectors": {
     "defaultRequire": 1
