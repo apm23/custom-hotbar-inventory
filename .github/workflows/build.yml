@@ -55,7 +55,10 @@ jobs:
           kill "$(cat server.pid)" 2>/dev/null || true
           pkill -f 'net.fabricmc.loader.impl.launch.knot.KnotServer' 2>/dev/null || true
           sleep 2
-          if grep -Eiq 'Exception|Caused by:|Could not execute entrypoint|A mod crashed|Crash report' server-smoke.log; then
+          # Optional @Pseudo compatibility mixins legitimately log ClassNotFoundException when
+          # TACZ is not installed in this baseline smoke environment. Only treat signatures that
+          # indicate an actual runtime crash/entrypoint failure as fatal here.
+          if grep -Eiq 'Exception in thread|Caused by:|Could not execute entrypoint|A mod crashed|Crash report|NoClassDefFoundError|ExceptionInInitializerError' server-smoke.log; then
             echo 'Dedicated server log contains a crash/error signature'
             cat server-smoke.log
             exit 1
