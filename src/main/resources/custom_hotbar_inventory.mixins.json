@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "ServerPlaceRecipeMixin",
-    "MerchantMenuMixin"
+    "MerchantMenuMixin",
+    "TaczGunSmithTableMenuMixin"
   ],
   "injectors": {
     "defaultRequire": 1
